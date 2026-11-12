@@ -1,0 +1,375 @@
+{
+  "schemaVersion": "packpoc.public-studio-qa/v1",
+  "sourceId": "studio-fefco-0201-second-size",
+  "templateId": "fefco-0201",
+  "sourceType": "locally-generated-PackPOC-Studio-A20-DieIR-QA-output",
+  "sourceHashScope": "public-filtered-PackPOC-generated-QA-geometry-only",
+  "geometrySHA256": "36ffdcfe2fea9370467649536892f513cff9e72b4d7cfb1f2ad61732092dc140",
+  "unit": "mm",
+  "status": "nonproduction-demonstration-only",
+  "entities": [
+    {
+      "operation": "cut",
+      "kind": "POLYLINE",
+      "closed": true,
+      "pointsMm": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          1.25,
+          0.0
+        ],
+        [
+          1.25,
+          -70.0
+        ],
+        [
+          208.75,
+          -70.0
+        ],
+        [
+          208.75,
+          0.0
+        ],
+        [
+          210.0,
+          0.0
+        ],
+        [
+          211.25,
+          0.0
+        ],
+        [
+          211.25,
+          -70.0
+        ],
+        [
+          348.75,
+          -70.0
+        ],
+        [
+          348.75,
+          0.0
+        ],
+        [
+          350.0,
+          0.0
+        ],
+        [
+          351.25,
+          0.0
+        ],
+        [
+          351.25,
+          -70.0
+        ],
+        [
+          558.75,
+          -70.0
+        ],
+        [
+          558.75,
+          0.0
+        ],
+        [
+          560.0,
+          0.0
+        ],
+        [
+          561.25,
+          0.0
+        ],
+        [
+          561.25,
+          -70.0
+        ],
+        [
+          698.75,
+          -70.0
+        ],
+        [
+          698.75,
+          0.0
+        ],
+        [
+          700.0,
+          0.0
+        ],
+        [
+          700.0,
+          180.0
+        ],
+        [
+          698.75,
+          180.0
+        ],
+        [
+          698.75,
+          250.0
+        ],
+        [
+          561.25,
+          250.0
+        ],
+        [
+          561.25,
+          180.0
+        ],
+        [
+          560.0,
+          180.0
+        ],
+        [
+          558.75,
+          180.0
+        ],
+        [
+          558.75,
+          250.0
+        ],
+        [
+          351.25,
+          250.0
+        ],
+        [
+          351.25,
+          180.0
+        ],
+        [
+          350.0,
+          180.0
+        ],
+        [
+          348.75,
+          180.0
+        ],
+        [
+          348.75,
+          250.0
+        ],
+        [
+          211.25,
+          250.0
+        ],
+        [
+          211.25,
+          180.0
+        ],
+        [
+          210.0,
+          180.0
+        ],
+        [
+          208.75,
+          180.0
+        ],
+        [
+          208.75,
+          250.0
+        ],
+        [
+          1.25,
+          250.0
+        ],
+        [
+          1.25,
+          180.0
+        ],
+        [
+          0.0,
+          180.0
+        ],
+        [
+          -35.0,
+          171.25
+        ],
+        [
+          -35.0,
+          8.75
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          210.0,
+          0.0
+        ],
+        [
+          210.0,
+          180.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          1.25,
+          0.0
+        ],
+        [
+          208.75,
+          0.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          1.25,
+          180.0
+        ],
+        [
+          208.75,
+          180.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          350.0,
+          0.0
+        ],
+        [
+          350.0,
+          180.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          211.25,
+          0.0
+        ],
+        [
+          348.75,
+          0.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          211.25,
+          180.0
+        ],
+        [
+          348.75,
+          180.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          560.0,
+          0.0
+        ],
+        [
+          560.0,
+          180.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          351.25,
+          0.0
+        ],
+        [
+          558.75,
+          0.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          351.25,
+          180.0
+        ],
+        [
+          558.75,
+          180.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          561.25,
+          0.0
+        ],
+        [
+          698.75,
+          0.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          561.25,
+          180.0
+        ],
+        [
+          698.75,
+          180.0
+        ]
+      ]
+    },
+    {
+      "operation": "crease",
+      "kind": "POLYLINE",
+      "closed": false,
+      "pointsMm": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          180.0
+        ]
+      ]
+    }
+  ]
+}
