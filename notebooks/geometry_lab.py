@@ -272,18 +272,15 @@ def _(json, mo, result):
     return
 
 @app.cell
-def _(analyze, entity):
+def _(analyze, entity, hashlib, json):
     # Pure Lab functions included at build time; zero imports from private
     # source repositories in the distributed self-contained notebook.
-    import json
-    import math
-    import hashlib
+    import math as _phase2_math
     import re
-    from collections import Counter, defaultdict
-    VERSION = "packpoc.geometry-lab.candidate/v1"
+    from collections import Counter as _phase2_Counter, defaultdict as _phase2_defaultdict
+    _phase2_VERSION = "packpoc.geometry-lab.candidate/v1"
     INPUT_SCHEMA = "packpoc.geometry-lab.dieir-batch/v1"
     OUTPUT_SCHEMA = "packpoc.geometry-lab.candidate/v1"
-    MAX_BYTES = 64_000_000
     MAX_VARIANTS = 2000
     MAX_ENTITY_RECORDS = 10_000
     TOOL_OPS = {"cut", "crease", "perf"}
@@ -306,7 +303,7 @@ def _(analyze, entity):
         required = {"schemaVersion", "units", "approval", "models", "candidateGroups"}
         if not isinstance(candidate, dict) or set(candidate) != required:
             raise ValueError("Candidate handoff has unsupported/missing keys")
-        if candidate["schemaVersion"] != VERSION or candidate["units"] != "mm":
+        if candidate["schemaVersion"] != _phase2_VERSION or candidate["units"] != "mm":
             raise ValueError("Unrecognized or non-mm Lab handoff version")
         flags = {"parametricFamilyVerified", "sourceCADVerified", "fold3DVerified",
                  "productionApproved", "studioActivationPermitted"}
@@ -349,7 +346,7 @@ def _(analyze, entity):
                 grouped_ids.add(member)
         if grouped_ids != ids:
             raise ValueError("Not every source model grouped exactly once")
-        return {"contract": VERSION, "status": "REVIEW_ONLY_CANDIDATES",
+        return {"contract": _phase2_VERSION, "status": "REVIEW_ONLY_CANDIDATES",
                 "sourceIds": len(ids), "candidateGroups": len(seen_groups),
                 "authoritativeStudioIntegration": False,
                 "studioCapabilitiesModified": False}
@@ -372,7 +369,7 @@ def _(analyze, entity):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"{label} must be a numeric mm scalar")
         number = float(value)
-        if not math.isfinite(number) or abs(number) > 1_000_000:
+        if not _phase2_math.isfinite(number) or abs(number) > 1_000_000:
             raise ValueError(f"{label} out of bounds")
         return number
 
@@ -389,8 +386,8 @@ def _(analyze, entity):
         if not isinstance(source, list) or not 1 <= len(source) <= MAX_ENTITY_RECORDS:
             raise ValueError("Missing or unbounded DieIR geometry")
         tool_edges = []
-        annotations = Counter()
-        source_primitives = Counter()
+        annotations = _phase2_Counter()
+        source_primitives = _phase2_Counter()
         source_ids = set()
         arcs = 0
         for position, original in enumerate(source):
@@ -516,7 +513,7 @@ def _(analyze, entity):
         # and the board fixed. Correlated axes are NOT independent measurements.
         dependencies = []
         for axis in AXES:
-            buckets = defaultdict(list)
+            buckets = _phase2_defaultdict(list)
             for variant in variants:
                 buckets[_parameter_key(variant,omit=axis)].append(variant)
             selected = None
@@ -534,7 +531,7 @@ def _(analyze, entity):
             else:
                 dependencies.append({"parameter":axis,"status":"not-identifiable-from-independent-single-axis-samples",
                                      "sampledValuesMm":all_axes[axis]})
-        material_groups = defaultdict(list)
+        material_groups = _phase2_defaultdict(list)
         for variant in variants:
             material_groups[_parameter_key(variant, include_material=False)].append(variant)
         material_pairs = 0
@@ -596,7 +593,7 @@ def _(analyze, entity):
             raise ValueError("Repeated source model ID")
         all_summaries=[]
         by_id={}
-        by_model=defaultdict(list)
+        by_model=_phase2_defaultdict(list)
         for record in records:
             if record.get("candidateOnly") is not True or record.get("manufacturingApproved") is not False:
                 raise ValueError("No Studio activation or manufacture approval allowed")
@@ -634,7 +631,7 @@ def _(analyze, entity):
         if set(by_model)!=set(sources):
             raise ValueError("Missing generated variants for source-declared model")
         family_evidence = {model:_model_observations(model,rows,by_id) for model,rows in by_model.items()}
-        grouped=defaultdict(list)
+        grouped=_phase2_defaultdict(list)
         for result in all_summaries:
             grouped[result["structuralFingerprint"]].append(result["sourceId"])
         groups=[]

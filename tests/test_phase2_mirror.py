@@ -78,7 +78,7 @@ def run_upload_case(batch):
         assert len(cells)==11, len(cells)
         (mo,)=cells[0]()
         analyze,candidates,entity,from_fixture,hashlib_,json_,time_,tracemalloc_=cells[1]()
-        process,merge_batches,compare_candidates=cells[6](analyze,entity)
+        process,merge_batches,compare_candidates=cells[6](analyze,entity,hashlib_,json_)
         batch_upload,reference_upload=cells[8](mo)
         batch_upload.value=[types.SimpleNamespace(name="test.json",
                     contents=json.dumps(batch).encode("utf-8"))]
