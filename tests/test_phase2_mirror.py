@@ -72,22 +72,39 @@ def sample_batch():
 def run_upload_case(batch):
     fake=FakeMarimo()
     FakeUI.file=staticmethod(lambda **kw:types.SimpleNamespace(value=[]))
+    FakeUI.checkbox=staticmethod(lambda **kw:types.SimpleNamespace(value=True))
     with patch.dict(sys.modules,{"marimo":fake}):
         runpy.run_path(str(ROOT/"notebooks"/"geometry_lab.py"))
         cells=fake.apps[0].cells
-        assert len(cells)==11, len(cells)
+        assert len(cells)==12, len(cells)
         (mo,)=cells[0]()
         analyze,candidates,entity,from_fixture,hashlib_,json_,time_,tracemalloc_=cells[1]()
         process,merge_batches,compare_candidates=cells[6](analyze,entity,hashlib_,json_)
-        batch_upload,reference_upload=cells[8](mo)
+        (authorization,)=cells[8](mo)
+        batch_upload,reference_upload=cells[9](authorization,mo)
         batch_upload.value=[types.SimpleNamespace(name="test.json",
                     contents=json.dumps(batch).encode("utf-8"))]
-        result,evidence,comparison,measure=cells[9](batch_upload,compare_candidates,
+        result,evidence,comparison,measure=cells[10](batch_upload,compare_candidates,
             json_,merge_batches,mo,process,reference_upload,time_,tracemalloc_)
         return result,evidence,measure
 
 
 class Phase2NotebookTests(unittest.TestCase):
+    def test_cloud_upload_is_inaccessible_without_explicit_authorization(self):
+        fake=FakeMarimo()
+        FakeUI.checkbox=staticmethod(lambda **kw:types.SimpleNamespace(value=False))
+        def blocked_file(**kwargs):
+            raise AssertionError("The file picker must not be created before consent")
+        FakeUI.file=staticmethod(blocked_file)
+        with patch.dict(sys.modules,{"marimo":fake}):
+            runpy.run_path(str(ROOT/"notebooks"/"geometry_lab.py"))
+            cells=fake.apps[0].cells
+            (mo,)=cells[0]()
+            (authorization,)=cells[8](mo)
+            batch_upload,reference_upload=cells[9](authorization,mo)
+            self.assertIsNone(batch_upload)
+            self.assertIsNone(reference_upload)
+
     def test_file_upload_processor_runs_real_inlined_geometry_functions(self):
         result,evidence,measure=run_upload_case(sample_batch())
         self.assertEqual(len(result["models"]),2)
@@ -109,7 +126,8 @@ class Phase2NotebookTests(unittest.TestCase):
     def test_upload_is_optional_and_not_performed_on_import(self):
         text=(ROOT/"notebooks"/"geometry_lab.py").read_text(encoding="utf-8")
         self.assertIn("batch_upload = mo.ui.file",text)
-        self.assertIn("if not batch_upload.value",text)
+        self.assertIn("cloud_transfer_authorized = mo.ui.checkbox",text)
+        self.assertIn("if batch_upload is None or not batch_upload.value",text)
         self.assertNotIn("from src.",text)
         self.assertNotIn("local_private/",text)
         self.assertNotIn("urllib.request",text)

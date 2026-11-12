@@ -742,15 +742,29 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    batch_upload = mo.ui.file(
-        filetypes=[".json"], multiple=True, kind="area", max_size=64_000_000,
-        label="Upload authorized A20-to-DieIR batch JSON (multiple shards supported)",
+    cloud_transfer_authorized = mo.ui.checkbox(
+        value=False,
+        label="I have reviewed source ownership, licenses and data privacy and authorize uploading the selected geometry to this hosted environment.",
     )
-    reference_upload = mo.ui.file(
-        filetypes=[".json"], multiple=False, max_size=64_000_000,
-        label="Optional independently produced Studio reference batch or candidate JSON",
-    )
-    mo.vstack([batch_upload, reference_upload])
+    cloud_transfer_authorized
+    return (cloud_transfer_authorized,)
+
+@app.cell
+def _(cloud_transfer_authorized, mo):
+    if cloud_transfer_authorized.value:
+        batch_upload = mo.ui.file(
+            filetypes=[".json"], multiple=True, kind="area", max_size=64_000_000,
+            label="Upload authorized A20-to-DieIR batch JSON (multiple shards supported)",
+        )
+        reference_upload = mo.ui.file(
+            filetypes=[".json"], multiple=False, max_size=64_000_000,
+            label="Optional authorized independent reference batch or candidate JSON",
+        )
+        mo.vstack([batch_upload, reference_upload])
+    else:
+        batch_upload = None
+        reference_upload = None
+        mo.md("Cloud file uploads are disabled. The public QA examples above need no upload. Only enable the checkbox after completing source-rights and privacy review.")
     return (batch_upload, reference_upload)
 
 @app.cell
@@ -759,7 +773,7 @@ def _(batch_upload, compare_candidates, json, merge_batches, mo, process, refere
     batch_evidence = None
     batch_comparison = None
     batch_measurements = None
-    if not batch_upload.value:
+    if batch_upload is None or not batch_upload.value:
         batch_preview = mo.md("No private data uploaded. Public Studio QA fixture demo is above.")
     else:
         try:

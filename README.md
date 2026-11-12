@@ -54,7 +54,8 @@ You may:
 
 1. Run the preinstalled three public safe QA examples above without any
    upload. They remain test fixtures, not the production batch.
-2. With separate authorization for cloud transfer, select one or more
+2. With separate authorization for cloud transfer, check the mandatory
+   upload-authorization control, then select one or more
    approved versioned Studio batch JSON files in the **Upload** input.
    The expected contract is
    packpoc.geometry-lab.dieir-batch/v1 (schema in schemas/).
