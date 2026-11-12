@@ -90,3 +90,18 @@ docs/STUDIO_MOLAB_BATCH_PHASE2_20261112.md. The public GitHub Actions
 workflow runs real marimo check/export on **only** the public fixture
 defaults, and runs synthetic uploaded-batch Python tests. It does not
 upload the private batch or attest to a live MoLab-hosted session.
+
+### Phase 2 execution evidence
+
+- Current public Mirror main:
+  **177eb60105a94e03daeb3e4be09cc2b6fa309fb5**.
+- https://github.com/drparsaee/packpoc-geometry-lab-molab/actions/runs/43264986263
+  is a **successful** hosted GitHub Actions run on that exact Commit:
+  10 Python tests, real marimo check, real marimo HTML export, nonempty HTML.
+- Separately, the private local Studio source exporter and Lab analyzed
+  52 active models and 616 authentic source-generated variants; all
+  output approvals remain false, and no private CAD files were published.
+- A successful GitHub Actions marimo execution is **not** evidence that
+  this Phase 2 notebook ran with uploaded data inside a MoLab session.
+  Actual MoLab account execution and cloud-vs-local benchmark are
+  still **unverified**.
