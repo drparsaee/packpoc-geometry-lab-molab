@@ -280,6 +280,7 @@ def _(analyze, entity, hashlib, json):
     from collections import Counter as _phase2_Counter, defaultdict as _phase2_defaultdict
     _phase2_VERSION = "packpoc.geometry-lab.candidate/v1"
     INPUT_SCHEMA = "packpoc.geometry-lab.dieir-batch/v1"
+    INPUT_SCHEMA_FAMILY = "packpoc.geometry-lab.dieir-batch/v2"
     OUTPUT_SCHEMA = "packpoc.geometry-lab.candidate/v1"
     MAX_VARIANTS = 2000
     MAX_ENTITY_RECORDS = 10_000
@@ -364,6 +365,33 @@ def _(analyze, entity, hashlib, json):
         if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
             raise ValueError(f"Missing or noncanonical SHA256 {label}")
         return value
+
+    def _input_contract(batch):
+        """Keep A20 v1 and declarative-source v2 provenance distinct.
+
+        A compiler-produced DieIR must never masquerade as an A20 calculation,
+        nor can a self-declared CAD pass flag substitute for a DXF/ARD oracle.
+        """
+        if not isinstance(batch,dict) or batch.get("unit") != "mm":
+            raise ValueError("Missing/unsupported metric source batch")
+        version=batch.get("schemaVersion")
+        generator=batch.get("generator")
+        if version==INPUT_SCHEMA and generator=="A20StudioEngine.calculate->StudioDieIR.compile":
+            return "native-a20"
+        if version==INPUT_SCHEMA_FAMILY and generator=="StudioParametricFamilyCompiler.compile->StudioDieIR.compile":
+            metadata=batch.get("familyCompiler")
+            if (
+                not isinstance(metadata, dict)
+                or not isinstance(metadata.get("familyId"), str)
+                or not metadata["familyId"].strip()
+            ):
+                raise ValueError("Missing actual declarative family definition identity")
+            _sha(metadata.get("compilerModuleSHA256"),"family engine PHP source")
+            _sha(metadata.get("definitionModuleSHA256"),"source rule definition PHP")
+            if metadata.get("sourceOnlyReview") is not True or metadata.get("physical3DFoldApproved") is not False:
+                raise ValueError("Unreviewed family compiler capability claim")
+            return "declarative-family-v2"
+        raise ValueError("Unsupported source generator/schema pair; cannot rewrite provenance")
 
     def _scalar(value, label):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -575,10 +603,7 @@ def _(analyze, entity, hashlib, json):
         }
 
     def process(batch):
-        if not isinstance(batch,dict) or batch.get("schemaVersion") != INPUT_SCHEMA or batch.get("unit") != "mm":
-            raise ValueError("Unsupported or non-mm Studio batch contract")
-        if batch.get("generator") != "A20StudioEngine.calculate->StudioDieIR.compile":
-            raise ValueError("Must originate from actual Studio engine-to-DieIR bridge")
+        provenance_kind=_input_contract(batch)
         approval = batch.get("approval",{})
         required = {"studioActivationPermitted","manufacturingApproved",
                     "sourceCADIndependentlyVerifiedByThisBatch","physical3DVerified"}
@@ -603,6 +628,24 @@ def _(analyze, entity, hashlib, json):
                 raise ValueError("Missing source ID, duplicate variant or wrong unit")
             if record["dieIR"].get("templateId") != model_id:
                 raise ValueError("Source and DieIR identities diverge")
+            if provenance_kind=="declarative-family-v2":
+                details=record.get("compilerProvenance")
+                meta=batch["familyCompiler"]
+                if (
+                    not isinstance(details, dict)
+                    or details.get("familyId") != meta["familyId"]
+                    or details.get("sourceSemantics") != "audited-declarative-rules-candidate-only"
+                    or record["dieIR"].get("reviewOnly") is not True
+                    or record.get("independentCADWitnessVerifiedInThisExport") is not False
+                ):
+                    raise ValueError("Declarative family candidate source/authority not preserved")
+                engine=record.get("engineVersion",{})
+                if (
+                    not isinstance(engine, dict)
+                    or engine.get("compilerModuleSHA256") != meta["compilerModuleSHA256"]
+                    or engine.get("definitionModuleSHA256") != meta["definitionModuleSHA256"]
+                ):
+                    raise ValueError("Cross-engine source module hash mismatch")
             _sha(record.get("sourceSHA256"), "original or module")
             _sha(record.get("sourceArtifactSHA256"), "DieIR artifact")
             if sha_json_php(record["dieIR"]) != record["sourceArtifactSHA256"]:
@@ -624,7 +667,9 @@ def _(analyze, entity, hashlib, json):
                          "inputParameters":record["inputParameters"],
                          "originalDieIRSchemaVersion":1,
                          "engineVersion":record["engineVersion"],
-                         "originalSourceClaimIsIndependentCADWitness":False})
+                         "originalSourceClaimIsIndependentCADWitness":False,
+                         "sourceEngineKind":provenance_kind,
+                         "familyCompilerProvenance":record.get("compilerProvenance") if provenance_kind=="declarative-family-v2" else None})
             by_id[variant_id]=info
             by_model[model_id].append(record)
             all_summaries.append(info)
@@ -665,13 +710,14 @@ def _(analyze, entity, hashlib, json):
         seen = set()
         model_ids = {}
         for batch in batches:
-            if not isinstance(batch,dict) or batch.get("schemaVersion") != INPUT_SCHEMA:
-                raise ValueError("Mixed/unsupported uploaded batch version")
+            _input_contract(batch)
             if merged is None:
                 merged = {**batch, "models":[], "variants":[]}
             elif (batch.get("unit") != merged.get("unit")
+                  or batch.get("schemaVersion") != merged.get("schemaVersion")
                   or batch.get("generator") != merged.get("generator")
-                  or batch.get("approval") != merged.get("approval")):
+                  or batch.get("approval") != merged.get("approval")
+                  or batch.get("familyCompiler") != merged.get("familyCompiler")):
                 raise ValueError("Inconsistent uploaded batch authority, generator or units")
             for model in batch.get("models",[]):
                 key=model["id"]
@@ -722,11 +768,13 @@ def _(analyze, entity, hashlib, json):
 
 @app.cell
 def _(mo):
-    mo.md("""## Phase 2 | Studio to MoLab batch geometry
+    mo.md("""## Phase 2 & 3 | Studio to MoLab batch geometry
 
     Upload one or more APPROVED source-preserving Studio
-    packpoc.geometry-lab.dieir-batch/v1 JSON files.
-    The processor reads original A20 -> DieIR entities, CUT/CREASE/PERF,
+    packpoc.geometry-lab.dieir-batch/v1 (A20) JSON files or explicitly
+    source-linked packpoc.geometry-lab.dieir-batch/v2 (declarative Family
+    Compiler). Source engine types cannot be silently interchanged.
+    The processor reads original source -> DieIR entities, CUT/CREASE/PERF,
     analytic ARC, source indices, panel/hinge IDs, L/W/D and materials.
 
     PRIVACY: Do not upload confidential CAD, unreleased source packages,
@@ -754,7 +802,7 @@ def _(cloud_transfer_authorized, mo):
     if cloud_transfer_authorized.value:
         batch_upload = mo.ui.file(
             filetypes=[".json"], multiple=True, kind="area", max_size=64_000_000,
-            label="Upload authorized A20-to-DieIR batch JSON (multiple shards supported)",
+            label="Upload authorized A20 (v1) or Family Compiler (v2) DieIR batch JSON",
         )
         reference_upload = mo.ui.file(
             filetypes=[".json"], multiple=False, max_size=64_000_000,
@@ -798,7 +846,10 @@ def _(batch_upload, compare_candidates, json, merge_batches, mo, process, refere
             }
             if reference_upload.value:
                 _reference = json.loads(reference_upload.value[0].contents.decode("utf-8-sig"))
-                if _reference.get("schemaVersion")=="packpoc.geometry-lab.dieir-batch/v1":
+                if _reference.get("schemaVersion") in (
+                    "packpoc.geometry-lab.dieir-batch/v1",
+                    "packpoc.geometry-lab.dieir-batch/v2",
+                ):
                     _reference_candidates,_ = process(_reference)
                 elif _reference.get("schemaVersion")=="packpoc.geometry-lab.candidate/v1":
                     _reference_candidates = _reference

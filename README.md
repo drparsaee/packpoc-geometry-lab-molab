@@ -78,6 +78,23 @@ Cloud transfer of the private file requires an explicit source, legal,
 privacy and ownership review. The local Lab can run the complete
 analysis entirely offline without transferring data.
 
+### Phase 3 source-preserving declarative input
+
+The public notebook also understands an **optional v2 contract** from
+StudioParametricFamilyCompiler, in
+`schemas/studio-declarative-family-batch-v2.schema.json`.
+It is not a second generator or a copy of protected Studio source code:
+the uploaded file is treated as source-linked **DieIR geometry only**,
+with separate original source SHA and compiler/definition SHA, explicit
+familyId, and denied production/3D/activation capabilities. v1 A20
+source and v2 Family Compiler provenance cannot be silently mixed.
+
+The first 060x source-family research batch contains **32** local generated
+variants for two original CAD styles. It remains in the private local Lab;
+**it is not published on GitHub or uploaded to MoLab**.
+The independently verified 2D CAD-X reference comparison is a separate
+local source-geometry test and is NOT self-attested by an uploaded v2 file.
+
 The numeric similarities are hypotheses based on multiple source-generated
 samples, not mathematical proof of the original source formula. The
 notebook does not discover independent vendor CAD witnesses, validate

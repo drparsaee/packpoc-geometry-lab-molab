@@ -90,6 +90,42 @@ def run_upload_case(batch):
 
 
 class Phase2NotebookTests(unittest.TestCase):
+    def test_public_notebook_accepts_separately_versioned_v2_source_candidates(self):
+        sample = sample_batch()
+        sample["schemaVersion"] = "packpoc.geometry-lab.dieir-batch/v2"
+        sample["generator"] = "StudioParametricFamilyCompiler.compile->StudioDieIR.compile"
+        sample["familyCompiler"] = {
+            "familyId": "public-synthetic-fixture-only",
+            "compilerModuleSHA256": "b" * 64,
+            "definitionModuleSHA256": "c" * 64,
+            "sourceOnlyReview": True,
+            "physical3DFoldApproved": False,
+        }
+        for variant in sample["variants"]:
+            variant["dieIR"]["reviewOnly"] = True
+            variant["sourceArtifactSHA256"] = hashlib.sha256(
+                json.dumps(variant["dieIR"],ensure_ascii=True,separators=(",",":")).encode()
+            ).hexdigest()
+            variant["engineVersion"] = {
+                "compilerModuleSHA256": "b" * 64,
+                "definitionModuleSHA256": "c" * 64,
+            }
+            variant["independentCADWitnessVerifiedInThisExport"] = False
+            variant["compilerProvenance"] = {
+                "familyId": "public-synthetic-fixture-only",
+                "sourceSemantics": "audited-declarative-rules-candidate-only",
+                "caseRole": "synthetic-public-QA-not-real-CAD",
+            }
+        result, ledger, measurement = run_upload_case(sample)
+        self.assertEqual(len(result["models"]),2)
+        self.assertTrue(all(x["sourceEngineKind"]=="declarative-family-v2"
+                            for x in result["models"]))
+        self.assertEqual(measurement["sourceVariants"],2)
+        self.assertFalse(any(result["approval"].values()))
+        forged=json.loads(json.dumps(sample))
+        forged["variants"][0]["compilerProvenance"]["familyId"]="forged-different-source"
+        self.assertIsNone(run_upload_case(forged)[0])
+
     def test_cloud_upload_is_inaccessible_without_explicit_authorization(self):
         fake=FakeMarimo()
         FakeUI.checkbox=staticmethod(lambda **kw:types.SimpleNamespace(value=False))
