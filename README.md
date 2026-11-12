@@ -94,11 +94,16 @@ upload the private batch or attest to a live MoLab-hosted session.
 
 ### Phase 2 execution evidence
 
-- Current public Mirror main:
+- Initial passing Phase 2 source-code revision:
   **177eb60105a94e03daeb3e4be09cc2b6fa309fb5**.
 - https://github.com/drparsaee/packpoc-geometry-lab-molab/actions/runs/43264986263
   is a **successful** hosted GitHub Actions run on that exact Commit:
   10 Python tests, real marimo check, real marimo HTML export, nonempty HTML.
+- The later upload-authorization revision
+  **9d55554302fe9efd864e5fced9a37b97f0292b12** also passed:
+  https://github.com/drparsaee/packpoc-geometry-lab-molab/actions/runs/43266863243
+  The runner checked 11 Python tests, real marimo validation/export and
+  nonempty exported HTML. This is evidence of hosted marimo, not MoLab.
 - Separately, the private local Studio source exporter and Lab analyzed
   52 active models and 616 authentic source-generated variants; all
   output approvals remain false, and no private CAD files were published.
