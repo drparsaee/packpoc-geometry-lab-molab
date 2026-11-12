@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://packpoc.com/schemas/geometry-lab/family-registry-candidates-v1",
+  "title": "Offline geometry-lab candidates. NOT an activation source.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "approval", "units", "models", "candidateGroups"],
+  "properties": {
+    "schemaVersion": {"const": "packpoc.geometry-lab.candidate/v1"},
+    "units": {"const": "mm"},
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parametricFamilyVerified", "sourceCADVerified", "fold3DVerified", "productionApproved", "studioActivationPermitted"],
+      "properties": {
+        "parametricFamilyVerified": {"const": false},
+        "sourceCADVerified": {"const": false},
+        "fold3DVerified": {"const": false},
+        "productionApproved": {"const": false},
+        "studioActivationPermitted": {"const": false}
+      }
+    },
+    "models": {
+      "type": "array",
+      "maxItems": 8000,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["sourceId", "sourceSHA256", "unit", "entityCount", "topology", "operationKinds", "structuralFingerprint", "sourceHashScope", "sourceArtifactSHA256"],
+        "properties": {
+          "sourceId": {"type": "string", "minLength": 1, "maxLength": 256},
+          "sourceSHA256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "sourceArtifactSHA256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "sourceHashScope": {"type": "string"},
+          "nativeDXFSHA256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "unit": {"const": "mm"},
+          "entityCount": {"type": "integer", "minimum": 1, "maximum": 8000},
+          "topology": {
+            "type": "object",
+            "required": ["vertices", "edges", "components", "cycles", "degreeHistogram", "tJunctionSplitEdges"],
+            "additionalProperties": false,
+            "properties": {
+              "vertices": {"type": "integer", "minimum": 0},
+              "edges": {"type": "integer", "minimum": 0},
+              "components": {"type": "integer", "minimum": 0},
+              "cycles": {"type": "integer", "minimum": 0},
+              "degreeHistogram": {"type": "object", "additionalProperties": {"type": "integer"}},
+              "tJunctionSplitEdges": {"type": "integer"}
+            }
+          },
+          "operationKinds": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+          "structuralFingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "candidateGroups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["structuralFingerprint", "sourceIds", "familyId", "evidenceLevel"],
+        "additionalProperties": true,
+        "properties": {
+          "structuralFingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "sourceIds": {"type": "array", "items": {"type": "string"}},
+          "familyId": {"type": "null"},
+          "evidenceLevel": {"const": "structural-candidate-only"}
+        }
+      }
+    }
+  }
+}

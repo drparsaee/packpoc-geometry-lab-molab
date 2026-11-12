@@ -68,9 +68,9 @@ def execute_notebook_cells():
     with patch.dict(sys.modules, {"marimo": fake}):
         runpy.run_path(str(ROOT / "notebooks" / "geometry_lab.py"))
         app = fake.apps[0]
-        assert len(app.cells) == 6
+        assert len(app.cells) >= 6
         (mo,) = app.cells[0]()
-        analyze, candidates, from_fixture, _, json_module, timer, tracemalloc = app.cells[1]()
+        analyze, candidates, entity, from_fixture, _, json_module, timer, tracemalloc = app.cells[1]()
         (samples,) = app.cells[2](json_module)
         (selected,) = app.cells[3](mo, samples)
         (result,) = app.cells[4](

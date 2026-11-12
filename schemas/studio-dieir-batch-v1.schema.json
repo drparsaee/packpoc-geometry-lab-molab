@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://packpoc.com/schemas/geometry-lab/studio-dieir-batch-v1",
+  "title": "Pack P.O.C. source-linked private A20-to-StudioDieIR batch",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "generator", "unit", "approval", "models", "variants"],
+  "properties": {
+    "schemaVersion": {"const": "packpoc.geometry-lab.dieir-batch/v1"},
+    "generator": {"const": "A20StudioEngine.calculate->StudioDieIR.compile"},
+    "unit": {"const": "mm"},
+    "approval": {
+      "type": "object",
+      "required": ["studioActivationPermitted", "manufacturingApproved", "sourceCADIndependentlyVerifiedByThisBatch", "physical3DVerified"],
+      "additionalProperties": false,
+      "properties": {
+        "studioActivationPermitted": {"const": false},
+        "manufacturingApproved": {"const": false},
+        "sourceCADIndependentlyVerifiedByThisBatch": {"const": false},
+        "physical3DVerified": {"const": false}
+      }
+    },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8000,
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {"id": {"type": "string", "minLength": 1}}
+      }
+    },
+    "variants": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2000,
+      "items": {
+        "type": "object",
+        "required": ["sourceId", "variantId", "sourceSHA256", "sourceArtifactSHA256", "sourceHashScope", "sourceCoordinateUnit", "inputParameters", "dieIR", "candidateOnly", "manufacturingApproved"],
+        "properties": {
+          "sourceId": {"type": "string", "minLength": 1},
+          "variantId": {"type": "string", "minLength": 1},
+          "sourceSHA256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "sourceArtifactSHA256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "sourceHashScope": {"type": "string"},
+          "sourceCoordinateUnit": {"const": "mm"},
+          "candidateOnly": {"const": true},
+          "manufacturingApproved": {"const": false},
+          "inputParameters": {
+            "type": "object",
+            "required": ["L", "W", "D", "DX", "material"],
+            "properties": {
+              "L": {"type": "number"},
+              "W": {"type": "number"},
+              "D": {"type": "number"},
+              "DX": {"type": "number"},
+              "fefco": {"type": ["object", "array"]},
+              "material": {"type": "object"}
+            }
+          },
+          "dieIR": {
+            "type": "object",
+            "required": ["schemaVersion", "unit", "templateId", "entities"],
+            "properties": {
+              "schemaVersion": {"const": 1},
+              "unit": {"const": "mm"},
+              "templateId": {"type": "string"},
+              "panelTopology": {"type": ["object", "null"]},
+              "entities": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10000,
+                "items": {
+                  "type": "object",
+                  "required": ["id", "operation", "nativeEntityType", "pointsMm"],
+                  "properties": {
+                    "id": {"type": "string"},
+                    "operation": {"enum": ["cut", "crease", "perf", "trim", "adhesive_region", "varnish_exclusion", "partial_cut", "reverse_partial_cut", "perforation", "score"]},
+                    "nativeEntityType": {"enum": ["LINE", "ARC", "POLYLINE"]},
+                    "analyticArc": {"type": ["object", "null"]},
+                    "pointsMm": {
+                      "type": "array",
+                      "minItems": 2,
+                      "items": {
+                        "type": "object",
+                        "required": ["x", "y"],
+                        "properties": {"x": {"type": "number"}, "y": {"type": "number"}}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

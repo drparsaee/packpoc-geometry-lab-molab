@@ -207,7 +207,7 @@ def _():
             "entities": edges,
         }
 
-    return (analyze, candidates, from_public_fixture, hashlib, json, time, tracemalloc)
+    return (analyze, candidates, entity, from_public_fixture, hashlib, json, time, tracemalloc)
 
 @app.cell
 def _(json):
@@ -269,6 +269,577 @@ def _(json, mo, result):
         label="Export review-only Studio candidate metadata",
     )
     output
+    return
+
+@app.cell
+def _(analyze, entity):
+    # Pure Lab functions included at build time; zero imports from private
+    # source repositories in the distributed self-contained notebook.
+    import json
+    import math
+    import hashlib
+    import re
+    from collections import Counter, defaultdict
+    VERSION = "packpoc.geometry-lab.candidate/v1"
+    INPUT_SCHEMA = "packpoc.geometry-lab.dieir-batch/v1"
+    OUTPUT_SCHEMA = "packpoc.geometry-lab.candidate/v1"
+    MAX_BYTES = 64_000_000
+    MAX_VARIANTS = 2000
+    MAX_ENTITY_RECORDS = 10_000
+    TOOL_OPS = {"cut", "crease", "perf"}
+    ANNOTATION_OPS = {
+        "trim", "adhesive_region", "varnish_exclusion", "partial_cut",
+        "reverse_partial_cut", "perforation", "score",
+    }
+    ALL_OPERATIONS = TOOL_OPS | ANNOTATION_OPS
+    SOURCE_TYPES = {"LINE", "ARC", "POLYLINE"}
+    APPROVAL = {
+        "parametricFamilyVerified": False,
+        "sourceCADVerified": False,
+        "fold3DVerified": False,
+        "productionApproved": False,
+        "studioActivationPermitted": False,
+    }
+    AXES = ("L", "W", "D")
+    COORD_TOL_MM = 0.002
+    def validate(candidate: dict) -> dict:
+        required = {"schemaVersion", "units", "approval", "models", "candidateGroups"}
+        if not isinstance(candidate, dict) or set(candidate) != required:
+            raise ValueError("Candidate handoff has unsupported/missing keys")
+        if candidate["schemaVersion"] != VERSION or candidate["units"] != "mm":
+            raise ValueError("Unrecognized or non-mm Lab handoff version")
+        flags = {"parametricFamilyVerified", "sourceCADVerified", "fold3DVerified",
+                 "productionApproved", "studioActivationPermitted"}
+        if set(candidate["approval"]) != flags or any(value is not False for value in candidate["approval"].values()):
+            raise ValueError("Lab may never assert approval or activation")
+        if not isinstance(candidate["models"], list) or len(candidate["models"]) > 8000:
+            raise ValueError("Invalid candidate count")
+        ids = set()
+        fingerprints = {}
+        for item in candidate["models"]:
+            if not isinstance(item.get("sourceId"), str) or not 1 <= len(item["sourceId"]) <= 256:
+                raise ValueError("Invalid source identity")
+            if item["sourceId"] in ids:
+                raise ValueError("Repeated source identity")
+            ids.add(item["sourceId"])
+            for sha_key in ("sourceSHA256", "sourceArtifactSHA256", "structuralFingerprint"):
+                value = item.get(sha_key)
+                if sha_key == "sourceArtifactSHA256" and value is None:
+                    continue
+                if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+                    raise ValueError("Missing original source hash/provenance")
+            if item.get("unit") != "mm" or not isinstance(item.get("topology"), dict):
+                raise ValueError("Non-metric or absent topology")
+            if not isinstance(item.get("operationKinds"), dict) or not isinstance(item.get("entityCount"), int):
+                raise ValueError("No typed source geometry inventory")
+            fingerprints[item["sourceId"]] = item["structuralFingerprint"]
+        seen_groups = set()
+        grouped_ids = set()
+        for group in candidate["candidateGroups"]:
+            fp = group.get("structuralFingerprint")
+            members = group.get("sourceIds")
+            if group.get("familyId", "invalid") is not None or group.get("evidenceLevel") != "structural-candidate-only":
+                raise ValueError("Lab group attempted source family promotion")
+            if not isinstance(members, list) or not members or members != sorted(members) or fp in seen_groups:
+                raise ValueError("Nondeterministic/duplicate structural grouping")
+            seen_groups.add(fp)
+            for member in members:
+                if member not in ids or member in grouped_ids or fingerprints[member] != fp:
+                    raise ValueError("Unknown/repeated source or altered group fingerprint")
+                grouped_ids.add(member)
+        if grouped_ids != ids:
+            raise ValueError("Not every source model grouped exactly once")
+        return {"contract": VERSION, "status": "REVIEW_ONLY_CANDIDATES",
+                "sourceIds": len(ids), "candidateGroups": len(seen_groups),
+                "authoritativeStudioIntegration": False,
+                "studioCapabilitiesModified": False}
+
+    def sha_json_php(data):
+        """Verifies the exact compact PHP JSON_PRESERVE_ZERO_FRACTION form.
+
+        This preserves dictionary insertion order and numeric semantics. If
+        Python and PHP serialization disagree, reject instead of claiming proof.
+        """
+        payload = json.dumps(data, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _sha(value, label):
+        if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+            raise ValueError(f"Missing or noncanonical SHA256 {label}")
+        return value
+
+    def _scalar(value, label):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{label} must be a numeric mm scalar")
+        number = float(value)
+        if not math.isfinite(number) or abs(number) > 1_000_000:
+            raise ValueError(f"{label} out of bounds")
+        return number
+
+    def _shape(record):
+        """Keep original DieIR primitives; flatten ONLY actual tool-line topology.
+
+        A source analytic ARC is one topology edge and is never treated as its
+        sampled preview chords. Non-tool annotations are retained and counted.
+        """
+        ir = record["dieIR"]
+        if ir.get("schemaVersion") != 1 or ir.get("unit") != "mm":
+            raise ValueError("Expected real metric Studio DieIR v1")
+        source = ir.get("entities")
+        if not isinstance(source, list) or not 1 <= len(source) <= MAX_ENTITY_RECORDS:
+            raise ValueError("Missing or unbounded DieIR geometry")
+        tool_edges = []
+        annotations = Counter()
+        source_primitives = Counter()
+        source_ids = set()
+        arcs = 0
+        for position, original in enumerate(source):
+            if not isinstance(original, dict):
+                raise ValueError("Invalid source entity")
+            eid = original.get("id")
+            op = original.get("operation")
+            kind = original.get("nativeEntityType")
+            if not isinstance(eid, str) or not eid or eid in source_ids:
+                raise ValueError("Missing or repeated original entity ID")
+            source_ids.add(eid)
+            if op not in ALL_OPERATIONS or kind not in SOURCE_TYPES:
+                raise ValueError("Unknown source CAD operation/primitive")
+            source_primitives[kind] += 1
+            pts = original.get("pointsMm")
+            if not isinstance(pts, list) or len(pts) < 2:
+                raise ValueError("Missing original mm vertex path")
+            for point in pts:
+                if not isinstance(point, dict) or set(point) != {"x", "y"}:
+                    raise ValueError("Source coordinates have missing/extra fields")
+                for axis in ("x", "y"):
+                    _scalar(point[axis], "source coordinate")
+            if op not in TOOL_OPS:
+                annotations[op] += 1
+                continue
+            index = original.get("sourceIndex", position)
+            if kind == "ARC":
+                analytic = original.get("analyticArc")
+                if not isinstance(analytic, dict) or op != "cut":
+                    raise ValueError("Native ARC has no supported analytic source")
+                c = analytic["centerMm"]
+                radius = _scalar(analytic["radiusMm"], "arc radius")
+                start = _scalar(analytic["startAngleDeg"], "arc start")
+                end = _scalar(analytic["endAngleDeg"], "arc end")
+                if not 0 <= start < 360 or not 0 <= end < 360 or start == end:
+                    raise ValueError("Unsupported analytic ARC sweep")
+                tool_edges.append(entity(op, "ARC",
+                    [[pts[0]["x"], pts[0]["y"]], [pts[-1]["x"], pts[-1]["y"]]],
+                    center=[c["x"], c["y"]], radius=radius, angles=[start, end],
+                    source_index=index))
+                arcs += 1
+            else:
+                if kind == "LINE" and (len(pts) != 2 or original.get("closed")):
+                    raise ValueError("Original LINE cannot be reinterpreted as polyline")
+                pairs = list(zip(pts, pts[1:]))
+                if original.get("closed"):
+                    pairs.append((pts[-1], pts[0]))
+                for first, last in pairs:
+                    tool_edges.append(entity(op, "LINE",
+                        [[first["x"], first["y"]], [last["x"], last["y"]]],
+                        source_index=index))
+            if len(tool_edges) > MAX_ENTITY_RECORDS:
+                raise ValueError("Too many flattened CAD tool segments")
+        if not tool_edges:
+            raise ValueError("DieIR carries no authentic tooling primitive")
+        return tool_edges, dict(annotations), dict(source_primitives), arcs
+
+    def _features(ir):
+        """Named original-source coordinate features, never reconstructed SVG."""
+        result = {}
+        for e in ir["entities"]:
+            if e["operation"] not in TOOL_OPS:
+                continue
+            eid = e["id"]
+            for i, p in enumerate(e["pointsMm"]):
+                for axis in ("x", "y"):
+                    result[f"{eid}:p{i}.{axis}"] = float(p[axis])
+            if e["nativeEntityType"] == "ARC":
+                arc = e["analyticArc"]
+                result[f"{eid}:radiusMm"] = float(arc["radiusMm"])
+                for axis in ("x", "y"):
+                    result[f"{eid}:center.{axis}"] = float(arc["centerMm"][axis])
+        return result
+
+    def _parameter_key(record, *, omit=None, include_material=True):
+        p = record["inputParameters"]
+        signature = {axis: p[axis] for axis in ("L", "W", "D", "DX") if axis != omit}
+        signature["fefco"] = p.get("fefco", {})
+        if include_material:
+            signature["material"] = p.get("material")
+        return json.dumps(signature, sort_keys=True, separators=(",", ":"))
+
+    def _numeric_candidate(first, last, holdout, axis):
+        left = float(first["inputParameters"][axis])
+        right = float(last["inputParameters"][axis])
+        middle = float(holdout["inputParameters"][axis])
+        if abs(right-left) < 1e-9 or not min(left,right) < middle < max(left,right):
+            return None
+        maps = [_features(r["dieIR"]) for r in (first,last,holdout)]
+        common = sorted(set(maps[0]).intersection(maps[1],maps[2]))
+        if not common:
+            return None
+        affine = []
+        nonlinear = []
+        for name in common:
+            y0,y1,y_mid = (m[name] for m in maps)
+            slope = (y1-y0)/(right-left)
+            intercept = y0-slope*left
+            residual = abs(slope*middle+intercept-y_mid)
+            output = {"sourceCoordinate":name,"slope":round(slope,8),
+                      "intercept":round(intercept,6),
+                      "holdoutResidualMm":round(residual,7)}
+            (affine if residual <= COORD_TOL_MM else nonlinear).append(output)
+        return {"parameter":axis,"observedInputMm":[left,middle,right],
+                "heldOutMiddleValue":middle, "sampleCount":3,
+                "featuresCompared":len(common),
+                "linearCandidateCount":len(affine),
+                "nonlinearObservationCount":len(nonlinear),
+                "linearExamples":affine[:12],
+                "nonlinearExamples":nonlinear[:8],
+                "evidenceLevel":"same-engine-numeric-holdout-not-source-formula-or-independent-CAD-witness",
+                "productionVerified":False}
+
+    def _model_observations(model_id, variants, summaries):
+        fingerprints = [summaries[v["variantId"]]["structuralFingerprint"] for v in variants]
+        sorted_flags = sorted(set(fingerprints))
+        all_axes = {axis: sorted({_scalar(v["inputParameters"][axis],axis) for v in variants})
+                    for axis in AXES}
+        observed = {axis:{"observedMinimumMm":min(values),"observedMaximumMm":max(values),
+                          "distinctAcceptedSamples":len(values)}
+                    for axis,values in all_axes.items()}
+        # Search only explicit univariate experiments that keep other parameters
+        # and the board fixed. Correlated axes are NOT independent measurements.
+        dependencies = []
+        for axis in AXES:
+            buckets = defaultdict(list)
+            for variant in variants:
+                buckets[_parameter_key(variant,omit=axis)].append(variant)
+            selected = None
+            for items in buckets.values():
+                unique = {float(v["inputParameters"][axis]):v for v in items}
+                xs = sorted(unique)
+                if len(xs) < 3:
+                    continue
+                trial = _numeric_candidate(unique[xs[0]],unique[xs[-1]],
+                                           unique[xs[len(xs)//2]],axis)
+                if trial and (selected is None or trial["featuresCompared"] > selected["featuresCompared"]):
+                    selected = trial
+            if selected:
+                dependencies.append(selected)
+            else:
+                dependencies.append({"parameter":axis,"status":"not-identifiable-from-independent-single-axis-samples",
+                                     "sampledValuesMm":all_axes[axis]})
+        material_groups = defaultdict(list)
+        for variant in variants:
+            material_groups[_parameter_key(variant, include_material=False)].append(variant)
+        material_pairs = 0
+        material_changed = 0
+        for group in material_groups.values():
+            for i in range(len(group)):
+                for j in range(i+1,len(group)):
+                    left,right = group[i],group[j]
+                    if left["inputParameters"]["material"] == right["inputParameters"]["material"]:
+                        continue
+                    material_pairs += 1
+                    a = _features(left["dieIR"]); b = _features(right["dieIR"])
+                    if a.keys()!=b.keys() or any(abs(a[k]-b[k]) > COORD_TOL_MM for k in a.keys() & b.keys()):
+                        material_changed += 1
+        inv = {
+            "stableAcrossObservedVariants":len(sorted_flags)==1,
+            "distinctStructuralFingerprints":len(sorted_flags),
+            "fingerprints":sorted_flags,
+            "topologyDiscontinuityObserved":len(sorted_flags)>1,
+            "sourceSegmentCountRange":[min(summaries[v["variantId"]]["entityCount"] for v in variants),
+                                        max(summaries[v["variantId"]]["entityCount"] for v in variants)],
+        }
+        return {
+            "sourceId":model_id,
+            "familyStatus":"RESEARCH_CANDIDATE_ONLY",
+            "geometryConstraints":{"sourceOriginalIdsAndDirectedGeometryRetained":True,
+                                   "observedOnlyNoSourceFormulaExtraction":True,
+                                   "univariateAffineHoldoutToleranceMm":COORD_TOL_MM},
+            "parameterDependencies":dependencies,
+            "topologyInvariants":inv,
+            "materialDependencies":{"matchedSameDimensionDifferentMaterialPairs":material_pairs,
+                                    "geometryChangedPairs":material_changed,
+                                    "thicknessFormulaVerified":False},
+            "validParameterDomain":{"status":"only-observed-accepted-samples-not-a-certified-continuous-domain",
+                                    "observedAcceptedRanges":observed,
+                                    "boundaryContinuityProved":False},
+            "independentWitnesses":[],
+            "confidence":{"score":None,"level":"candidate-only-insufficient-for-activation",
+                          "reason":"Same engine generated every exported variant; no independent CAD oracle is embedded."},
+            "testedVariantCount":len(variants),
+        }
+
+    def process(batch):
+        if not isinstance(batch,dict) or batch.get("schemaVersion") != INPUT_SCHEMA or batch.get("unit") != "mm":
+            raise ValueError("Unsupported or non-mm Studio batch contract")
+        if batch.get("generator") != "A20StudioEngine.calculate->StudioDieIR.compile":
+            raise ValueError("Must originate from actual Studio engine-to-DieIR bridge")
+        approval = batch.get("approval",{})
+        required = {"studioActivationPermitted","manufacturingApproved",
+                    "sourceCADIndependentlyVerifiedByThisBatch","physical3DVerified"}
+        if not isinstance(approval,dict) or set(approval)!=required or any(x is not False for x in approval.values()):
+            raise ValueError("Forged authority flags")
+        records = batch.get("variants")
+        models = batch.get("models")
+        if not isinstance(records,list) or not isinstance(models,list) or not 1 <= len(records) <= MAX_VARIANTS:
+            raise ValueError("Missing/beyond-budget original model batch")
+        sources = {x["id"]:x for x in models}
+        if len(sources)!=len(models):
+            raise ValueError("Repeated source model ID")
+        all_summaries=[]
+        by_id={}
+        by_model=defaultdict(list)
+        for record in records:
+            if record.get("candidateOnly") is not True or record.get("manufacturingApproved") is not False:
+                raise ValueError("No Studio activation or manufacture approval allowed")
+            model_id=record["sourceId"]
+            variant_id=record["variantId"]
+            if model_id not in sources or variant_id in by_id or record.get("sourceCoordinateUnit") != "mm":
+                raise ValueError("Missing source ID, duplicate variant or wrong unit")
+            if record["dieIR"].get("templateId") != model_id:
+                raise ValueError("Source and DieIR identities diverge")
+            _sha(record.get("sourceSHA256"), "original or module")
+            _sha(record.get("sourceArtifactSHA256"), "DieIR artifact")
+            if sha_json_php(record["dieIR"]) != record["sourceArtifactSHA256"]:
+                raise ValueError("Original source DieIR JSON changed after export")
+            tool,notes,primitives,arcs = _shape(record)
+            info = analyze({"sourceId":variant_id,"sourceSHA256":record["sourceSHA256"],
+                            "sourceArtifactSHA256":record["sourceArtifactSHA256"],
+                            "sourceHashScope":record["sourceHashScope"],
+                            "entities":tool})
+            topo=record["dieIR"].get("panelTopology")
+            panel_ids = [p["id"] for p in topo.get("panels", [])] if isinstance(topo,dict) else []
+            hinge_ids = [h["entityId"] for h in topo.get("hinges", [])] if isinstance(topo,dict) else []
+            if len(panel_ids)!=len(set(panel_ids)) or len(hinge_ids)!=len(set(hinge_ids)):
+                raise ValueError("Repeated original source panel/hinge identity")
+            info.update({"modelId":model_id,"sourceVariantId":variant_id,
+                         "originalEntityCount":len(record["dieIR"]["entities"]),
+                         "sourceNativePrimitives":primitives,"nonToolSourceAnnotations":notes,
+                         "analyticSourceArcCount":arcs,"panelIds":panel_ids,"hingeEntityIds":hinge_ids,
+                         "inputParameters":record["inputParameters"],
+                         "originalDieIRSchemaVersion":1,
+                         "engineVersion":record["engineVersion"],
+                         "originalSourceClaimIsIndependentCADWitness":False})
+            by_id[variant_id]=info
+            by_model[model_id].append(record)
+            all_summaries.append(info)
+        if set(by_model)!=set(sources):
+            raise ValueError("Missing generated variants for source-declared model")
+        family_evidence = {model:_model_observations(model,rows,by_id) for model,rows in by_model.items()}
+        grouped=defaultdict(list)
+        for result in all_summaries:
+            grouped[result["structuralFingerprint"]].append(result["sourceId"])
+        groups=[]
+        for fingerprint,source_ids in sorted(grouped.items()):
+            model_ids=sorted({by_id[key]["modelId"] for key in source_ids})
+            groups.append({
+                "structuralFingerprint":fingerprint,"sourceIds":sorted(source_ids),
+                "familyId":None,"evidenceLevel":"structural-candidate-only",
+                "familyCandidate":{"modelIds":model_ids,"candidateOnly":True,
+                                   "sameTopologyDoesNotProveSameSourceFormula":True,
+                                   "confidence":{"score":None,"level":"not-industrially-verified"}},
+                "parameterDependencies":{model:family_evidence[model]["parameterDependencies"] for model in model_ids},
+                "geometryConstraints":{model:family_evidence[model]["geometryConstraints"] for model in model_ids},
+                "topologyInvariants":{model:family_evidence[model]["topologyInvariants"] for model in model_ids},
+                "materialDependencies":{model:family_evidence[model]["materialDependencies"] for model in model_ids},
+                "validParameterDomain":{model:family_evidence[model]["validParameterDomain"] for model in model_ids},
+                "independentWitnesses":[],
+            })
+        inbox={
+            "schemaVersion":OUTPUT_SCHEMA,"units":"mm","approval":dict(APPROVAL),
+            "models":all_summaries,"candidateGroups":groups,
+        }
+        validate_inbox(inbox)
+        return inbox, family_evidence
+
+    def merge_batches(batches):
+        """Unify independent uploaded JSON batches without changing raw geometry."""
+        if not isinstance(batches,list) or not 1 <= len(batches) <= 16:
+            raise ValueError("Expected 1..16 explicit Studio batch uploads")
+        merged = None
+        seen = set()
+        model_ids = {}
+        for batch in batches:
+            if not isinstance(batch,dict) or batch.get("schemaVersion") != INPUT_SCHEMA:
+                raise ValueError("Mixed/unsupported uploaded batch version")
+            if merged is None:
+                merged = {**batch, "models":[], "variants":[]}
+            elif (batch.get("unit") != merged.get("unit")
+                  or batch.get("generator") != merged.get("generator")
+                  or batch.get("approval") != merged.get("approval")):
+                raise ValueError("Inconsistent uploaded batch authority, generator or units")
+            for model in batch.get("models",[]):
+                key=model["id"]
+                if key not in model_ids:
+                    model_ids[key]=model
+                    merged["models"].append(model)
+                elif (model_ids[key].get("sourceDefaultDimensions") != model.get("sourceDefaultDimensions")
+                      or model_ids[key].get("dimensionSemantics") != model.get("dimensionSemantics")):
+                    raise ValueError("Conflicting source model definitions across batches")
+            for variant in batch.get("variants",[]):
+                key=variant["variantId"]
+                if key in seen:
+                    raise ValueError("Repeated source variant across uploaded batches")
+                seen.add(key)
+                merged["variants"].append(variant)
+        if len(seen)>MAX_VARIANTS:
+            raise ValueError("Merged variant budget exceeded")
+        return merged
+
+    def compare_candidates(actual, reference):
+        """Detailed exact Source-DieIR artifact and topology parity, no image fit."""
+        validate_inbox(actual)
+        validate_inbox(reference)
+        a={x["sourceId"]:x for x in actual["models"]}
+        b={x["sourceId"]:x for x in reference["models"]}
+        fields=("sourceSHA256","sourceArtifactSHA256","operationKinds",
+                "sourceNativePrimitives","analyticSourceArcCount",
+                "topology","panelIds","hingeEntityIds")
+        changed=[]
+        for key in sorted(a.keys() & b.keys()):
+            # JSON object keys are strings. graph.degreeHistogram uses integer
+            # degree keys in memory, so canonicalize both before comparison.
+            mismatched=[field for field in fields
+                        if json.dumps(a[key].get(field),sort_keys=True,ensure_ascii=True)
+                        != json.dumps(b[key].get(field),sort_keys=True,ensure_ascii=True)]
+            if mismatched:
+                changed.append({"sourceId":key,"mismatchedFields":mismatched})
+        return {"compared":len(a.keys() & b.keys()),
+                "missingInReference":sorted(a.keys()-b.keys()),
+                "missingInActual":sorted(b.keys()-a.keys()),
+                "changed":changed[:100],
+                "changedCount":len(changed),
+                "parityVerified":not changed and a.keys()==b.keys(),
+                "independentCADWitnessVerified":False,
+                "comparisonScope":"same-format-source-linked-DieIR-candidates-not-independent-vendor-oracle"}
+    validate_inbox = validate
+    return (process, merge_batches, compare_candidates)
+
+@app.cell
+def _(mo):
+    mo.md("""## Phase 2 | Studio to MoLab batch geometry
+
+    Upload one or more APPROVED source-preserving Studio
+    packpoc.geometry-lab.dieir-batch/v1 JSON files.
+    The processor reads original A20 -> DieIR entities, CUT/CREASE/PERF,
+    analytic ARC, source indices, panel/hinge IDs, L/W/D and materials.
+
+    PRIVACY: Do not upload confidential CAD, unreleased source packages,
+    CAD-X private witnesses, customer work or tokens to a public MoLab
+    session unless cloud transfer has been separately authorized.
+    Nothing is uploaded automatically. The three existing public QA examples
+    can still be run as a safe demonstration without any upload.
+
+    Numeric fits are research-only hypotheses, not verified CAD formulas.
+    This notebook cannot approve manufacturing or activate a Studio family.
+    """)
+    return
+
+@app.cell
+def _(mo):
+    batch_upload = mo.ui.file(
+        filetypes=[".json"], multiple=True, kind="area", max_size=64_000_000,
+        label="Upload authorized A20-to-DieIR batch JSON (multiple shards supported)",
+    )
+    reference_upload = mo.ui.file(
+        filetypes=[".json"], multiple=False, max_size=64_000_000,
+        label="Optional independently produced Studio reference batch or candidate JSON",
+    )
+    mo.vstack([batch_upload, reference_upload])
+    return (batch_upload, reference_upload)
+
+@app.cell
+def _(batch_upload, compare_candidates, json, merge_batches, mo, process, reference_upload, time, tracemalloc):
+    batch_result = None
+    batch_evidence = None
+    batch_comparison = None
+    batch_measurements = None
+    if not batch_upload.value:
+        batch_preview = mo.md("No private data uploaded. Public Studio QA fixture demo is above.")
+    else:
+        try:
+            _bytes = [uploaded.contents for uploaded in batch_upload.value]
+            if any(not isinstance(raw, bytes) or len(raw)>64_000_000 for raw in _bytes):
+                raise ValueError("Upload exceeds 64 MB or is not valid file bytes")
+            _batches = [json.loads(raw.decode("utf-8-sig")) for raw in _bytes]
+            _merged = merge_batches(_batches)
+            tracemalloc.start()
+            _start = time.perf_counter()
+            batch_result, batch_evidence = process(_merged)
+            _peak = tracemalloc.get_traced_memory()[1]
+            tracemalloc.stop()
+            batch_measurements = {
+                "uploadedFiles":len(_bytes),
+                "uploadedBytes":sum(len(raw) for raw in _bytes),
+                "sourceModels":len(batch_evidence),
+                "sourceVariants":len(batch_result["models"]),
+                "candidateGroups":len(batch_result["candidateGroups"]),
+                "elapsedSeconds":round(time.perf_counter()-_start,5),
+                "tracedPeakPythonBytes":_peak,
+            }
+            if reference_upload.value:
+                _reference = json.loads(reference_upload.value[0].contents.decode("utf-8-sig"))
+                if _reference.get("schemaVersion")=="packpoc.geometry-lab.dieir-batch/v1":
+                    _reference_candidates,_ = process(_reference)
+                elif _reference.get("schemaVersion")=="packpoc.geometry-lab.candidate/v1":
+                    _reference_candidates = _reference
+                else:
+                    raise ValueError("Unsupported reference version")
+                batch_comparison = compare_candidates(batch_result,_reference_candidates)
+            _rows = []
+            for model_id,summary in sorted(batch_evidence.items()):
+                _rows.append({
+                    "model":model_id,
+                    "variants":summary["testedVariantCount"],
+                    "topology invariant":summary["topologyInvariants"]["stableAcrossObservedVariants"],
+                    "fingerprints":summary["topologyInvariants"]["distinctStructuralFingerprints"],
+                    "single-axis holdouts": ",".join(
+                        axis["parameter"] for axis in summary["parameterDependencies"]
+                        if "linearCandidateCount" in axis),
+                    "independent CAD witnesses":0,
+                })
+            batch_preview = mo.vstack([
+                mo.md("### Actual uploaded Studio geometry batch analysis"),
+                mo.md(f"{batch_measurements['sourceModels']} models, "
+                      f"{batch_measurements['sourceVariants']} variants, "
+                      f"{batch_measurements['candidateGroups']} groups in "
+                      f"{batch_measurements['elapsedSeconds']} s; "
+                      f"traced peak {batch_measurements['tracedPeakPythonBytes']:,} Python bytes."),
+                mo.ui.table(_rows, label="Observed source/model constraints"),
+                mo.md("Reference comparison: " + (
+                    json.dumps(batch_comparison, ensure_ascii=False)[:1200]
+                    if batch_comparison is not None else "No reference uploaded")),
+                mo.md("All production, source CAD approval and activation flags are FALSE."),
+            ])
+        except Exception as _exc:
+            if tracemalloc.is_tracing():
+                tracemalloc.stop()
+            batch_result = None
+            batch_evidence = None
+            batch_preview = mo.md("Batch rejected: " + type(_exc).__name__ + ": " + str(_exc)[:250])
+    batch_preview
+    return (batch_result, batch_evidence, batch_comparison, batch_measurements)
+
+@app.cell
+def _(batch_result, json, mo):
+    if batch_result is None:
+        batch_download = mo.md("Upload an authorized Studio batch to enable candidate export.")
+    else:
+        batch_download = mo.download(
+            data=json.dumps(batch_result,indent=2,ensure_ascii=False).encode("utf-8"),
+            filename="studio-geometry-family-candidates-v1.json",
+            mimetype="application/json",
+            label="Download review-only StudioGeometryLabCandidateInbox JSON",
+        )
+    batch_download
     return
 
 if __name__ == "__main__":

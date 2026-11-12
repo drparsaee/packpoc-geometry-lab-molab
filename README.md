@@ -43,3 +43,50 @@ Public JSON fixtures are available in samples/ for audit, while the mirror runti
 The original private GitHub repository is not anonymously accessible to the MoLab GitHub mirror, and its original notebook imports sibling code. This public bundle solves both restrictions without changing the authoritative Studio or private Geometry Lab.
 
 All Lab export flags for manufacturing, 3D approval and Studio activation remain false. Only Prime inside original Studio can approve a source-backed parametric family after independent geometry and physical QA.
+
+## Phase 2: optional real Studio DieIR batch upload
+
+The single-file notebook now includes a second, general source-geometry
+processing section. Its source is the **same** reviewed Python research
+functions used by the separate private Lab. This is not a per-model generator.
+
+You may:
+
+1. Run the preinstalled three public safe QA examples above without any
+   upload. They remain test fixtures, not the production batch.
+2. With separate authorization for cloud transfer, select one or more
+   approved versioned Studio batch JSON files in the **Upload** input.
+   The expected contract is
+   packpoc.geometry-lab.dieir-batch/v1 (schema in schemas/).
+   All batches must use the real A20StudioEngine -> StudioDieIR path,
+   include real metric entities, their SHA256, L/W/D inputs, optional
+   source N/board/caliper and panels/hinges, and explicitly denied
+   production activation flags.
+3. View source operations and topology invariants, observed possible
+   material dependencies, conditional one-parameter affine holdout
+   candidates and explicitly observed accepted input ranges. Upload an
+   optional separately generated Studio reference to compare hash,
+   operation types and original source geometry connectivity.
+4. Download review-only candidate JSON for the authoritative Studio's
+   StudioGeometryLabCandidateInbox.php. The output is never auto-activated.
+
+**Privacy warning:** the public Mirror contains zero private full
+Studio/CAD-X batches. Do NOT upload confidential 52-model/616-variant
+source data to MoLab merely because a file chooser is present.
+Cloud transfer of the private file requires an explicit source, legal,
+privacy and ownership review. The local Lab can run the complete
+analysis entirely offline without transferring data.
+
+The numeric similarities are hypotheses based on multiple source-generated
+samples, not mathematical proof of the original source formula. The
+notebook does not discover independent vendor CAD witnesses, validate
+physical folded 3D/locks, or certify continuous manufacturing domains.
+Changing material alone may alter geometry, but a thickness rule is
+not independently established by that observation.
+
+For private local batch analysis (no cloud transfer), refer to the
+canonical private Lab's src/batch_families.py and its
+docs/STUDIO_MOLAB_BATCH_PHASE2_20261112.md. The public GitHub Actions
+workflow runs real marimo check/export on **only** the public fixture
+defaults, and runs synthetic uploaded-batch Python tests. It does not
+upload the private batch or attest to a live MoLab-hosted session.
